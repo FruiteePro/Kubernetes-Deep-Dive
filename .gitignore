@@ -1,0 +1,12 @@
+# 阅读器运行时生成的图片缓存
+.reader-cache/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# html2md.py 的导出产物（含大量 base64 图片，7MB+），默认不进仓库；想一起提交把这行删掉即可
+MD/
