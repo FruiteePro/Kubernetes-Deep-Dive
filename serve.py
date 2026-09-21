@@ -366,7 +366,10 @@ article.empty{color:var(--muted)}
 article .head{margin:0 0 26px;padding-bottom:18px;border-bottom:1px solid var(--line)}
 article .head .no{font-size:12px;letter-spacing:1.5px;color:var(--accent);font-weight:700}
 article .head h2{margin:6px 0 0;font-size:26px;line-height:1.35;letter-spacing:.2px}
-article .head .meta{margin-top:8px;font-size:12px;color:var(--muted)}
+article .head .meta{display:flex;gap:12px;flex-wrap:wrap;align-items:center;
+  margin-top:8px;font-size:12px;color:var(--muted)}
+article .head .meta .hint{color:var(--muted)}
+article .head .meta .hint.done{color:#25a34c;font-weight:600}
 .ct{font-size:16.5px}
 .ct h1,.ct h2,.ct h3,.ct h4{line-height:1.4;margin:1.7em 0 .7em;font-weight:700}
 .ct h1{font-size:23px}.ct h2{font-size:20px}.ct h3{font-size:17.5px}.ct h4{font-size:16.5px}
@@ -497,10 +500,13 @@ function syncSidebar() {
   });
   const pct = INDEX.length ? Math.round((read.size / INDEX.length) * 100) : 0;
   $('#stat').textContent = '已读 ' + read.size + ' / ' + INDEX.length + ' (' + pct + '%)';
+  const act = nodes[current];  // 让当前文章在目录里保持可见
+  if (act && act.scrollIntoView) act.scrollIntoView({ block: 'nearest' });
   $('#bar > i').style.width = pct + '%';
 }
 
 let current = null;
+let autoMarked = false;  // 本篇是否已经因为“读到末尾”自动标记过
 
 function neighbors() {
   const i = INDEX.findIndex((it) => it.id === current);
@@ -526,12 +532,21 @@ async function open(id, push = true) {
     doc.innerHTML =
       '<div class="head"><div class="no">' + (it.num ? '第 ' + it.num + ' 讲' : '') + '</div>' +
       '<h2></h2><div class="meta">约 ' + data.words + ' 字 · ' +
-      Math.max(1, Math.round(data.words / 400)) + ' 分钟</div></div>' +
+      Math.max(1, Math.round(data.words / 400)) + ' 分钟' +
+      '<span class="hint" id="readHint"></span></div></div>' +
       '<div class="ct">' + data.html + '</div>';
     doc.querySelector('h2').textContent = it.title;
     addCopyButtons();
+    // 图片加载完会撑高正文，也要重新判断一次“是否已到末尾”
+    doc.querySelectorAll('.ct img').forEach((img) => {
+      if (!img.complete) img.addEventListener('load', checkBottom, { once: true });
+    });
+    autoMarked = false;
     scroller.scrollTop = 0;
-    markRead(id);
+    updateReadHint();
+    const forId = id;
+    setTimeout(() => { if (current === forId) checkBottom(); }, 250);
+    checkBottom();
   } catch (err) {
     doc.className = 'empty';
     doc.textContent = '加载失败：' + err.message;
@@ -583,12 +598,36 @@ function markRead(id, force) {
   store.set('k8s.read', [...read]);
   syncSidebar();
   setNav();
+  updateReadHint();
+}
+
+/* 正文已经滚到末尾（留 80px 余量） */
+function atBottom() {
+  return scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 80;
+}
+
+/* 只有真的看到末尾才自动标记已读；一篇只自动标记一次 */
+function checkBottom() {
+  if (!current || autoMarked || !atBottom()) return;
+  autoMarked = true;
+  if (!read.has(current)) markRead(current, true);
+}
+
+/* 标题下方那行提示：未读 → 提示“读到末尾自动标记”，已读 → ✓ */
+function updateReadHint() {
+  const el = document.getElementById('readHint');
+  if (!el) return;
+  const done = read.has(current);
+  el.textContent = done ? '✓ 已读' : '· 读到末尾自动标记为已读';
+  el.classList.toggle('done', done);
 }
 
 /* ---------- 事件 ---------- */
 $('#list').addEventListener('click', (e) => {
   const a = e.target.closest('a');
-  if (a) e.preventDefault();
+  if (!a || !a.dataset.id) return;
+  e.preventDefault();  // 统一交给 open()，避免 hashchange 再加载一次
+  open(a.dataset.id);
 });
 window.addEventListener('hashchange', () => {
   const id = decodeURIComponent(location.hash.slice(1));
@@ -604,7 +643,11 @@ $('#theme').onclick = () => {
   store.set('k8s.theme', theme);
 };
 $('#toTop').onclick = () => (scroller.scrollTop = 0);
-scroller.addEventListener('scroll', () => $('#toTop').classList.toggle('show', scroller.scrollTop > 400));
+scroller.addEventListener('scroll', () => {
+  $('#toTop').classList.toggle('show', scroller.scrollTop > 400);
+  checkBottom();
+});
+window.addEventListener('resize', checkBottom);
 
 $('#q').addEventListener('input', (e) => renderList(e.target.value));
 $('#q').addEventListener('keydown', (e) => {
