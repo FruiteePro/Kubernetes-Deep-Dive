@@ -1,0 +1,24 @@
+.gitignore
+  s_1f35c2b207abc9::t_8abff3c53e9dc8 2,5
+  s_1f35c2b207abc9::t_04467b65686c15 1,3-4,6-12
+README.md
+  s_1f35c2b207abc9::t_f57b0289dd565a 1-48,51-108,110-113
+serve.py
+  s_1f35c2b207abc9::t_1edfb9594ba4b9 1-250,255-386,389-786
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.45-trip",
+  "base_commit_sha": "49fcfe0333d50f165dbaa1e1645cba01155d0e19",
+  "prompts": {},
+  "sessions": {
+    "s_1f35c2b207abc9": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a0c465-2b79-75d0-bad0-0e4fe7ea3bfc",
+        "model": "deepseek-v4.1-flash"
+      },
+      "human_author": "kejp <kejp@trip.com>"
+    }
+  }
+}
