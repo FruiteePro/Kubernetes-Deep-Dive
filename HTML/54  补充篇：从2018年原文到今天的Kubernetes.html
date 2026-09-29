@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>54 | 补充篇：从 2018 年原文到今天的 Kubernetes</title>
+</head>
+<body>
+<div id="article-content" class="article-content">
+  <p><strong>编者补充 · 2026 年 9 月</strong>：本篇由仓库维护者追加，不属于张磊在极客时间发表的专栏原文。原有 00—53 篇主要写于 2018 年；容器、Pod、控制器、声明式 API 等核心思想依然值得学习，但实验功能、安装命令、资源版本和一些实现细节不能不加核对地照搬到今天的集群。</p>
+  <p>下面按原文章节归纳<strong>最影响复现、安全和理解</strong>的时效性差异。“已移除”指 Kubernetes 不再提供那项 API 或机制；“已弃用”不等于立刻不能用；“实现演进”则表示原文在当时成立，只是现在另有主流做法。这里不是逐个命令的替换脚本：真正迁移前，仍需核对目标集群版本、发行版、CNI/CSI 驱动和 Istio 版本。</p>
+
+  <h2>一、不要直接照抄的安装和运行时步骤</h2>
+  <ul>
+    <li><strong>第 <a href="/#10">10</a>、<a href="/#11">11</a> 讲：安装仓库与 kubeadm。</strong> 原文基于 Ubuntu 16.04、<code>apt.kubernetes.io</code>、<code>apt-key</code>、旧 <code>kubeadm.k8s.io/v1alpha*</code> 配置以及旧镜像和网络插件清单。旧软件仓库已停止提供新包；现在按<strong>目标 Kubernetes 小版本</strong>选择 <code>pkgs.k8s.io</code> 软件源，按该版本的官方 kubeadm 安装文档准备 CRI、CNI、镜像和配置（当前文档使用 <code>kubeadm.k8s.io/v1beta4</code>，不能保证适用于所有旧版本）。不要把原文指向 GitHub <code>master</code> 分支的在线 YAML 直接应用到生产集群；应固定与集群兼容的发布版本并审阅清单。参阅 <a href="https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/">安装 kubeadm</a>和<a href="https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/change-package-repository/">软件源迁移</a>。</li>
+    <li><strong>第 <a href="/#05">05</a>—<a href="/#08">08</a>、<a href="/#45">45</a>、<a href="/#46">46</a> 讲：Docker、dockershim 和 cgroups。</strong> 原文使用 Docker Engine 与 kubelet 内置 dockershim 解释当年的实现。<strong>从 Kubernetes 1.24 起，kubelet 已移除 dockershim</strong>；节点一般使用实现 CRI 的 containerd 或 CRI-O，需要保留 Docker Engine 时须另行配置 cri-dockerd。这不影响 Kubernetes 运行用 Docker 等工具构建的兼容容器镜像。书中的 cgroup v1 文件路径和命令也应视为历史演示：新版节点多用 cgroup v2，Kubernetes 1.35 起弃用 cgroup v1，kubelet 默认不在 cgroup v1 节点启动；管理员虽可暂设 <code>failCgroupV1: false</code>，仍应迁移至 cgroup v2。参阅 <a href="https://kubernetes.io/blog/2022/05/03/kubernetes-1-24-release-announcement/">1.24 发行说明</a>、<a href="https://kubernetes.io/docs/concepts/architecture/cgroups/">cgroup v1 弃用说明</a>。</li>
+  </ul>
+
+  <h2>二、曾经的自动改写对象机制，如今怎么做</h2>
+  <ul>
+    <li><strong>第 <a href="/#15">15</a> 讲的 PodPreset：已移除。</strong> 文中的 <code>settings.k8s.io/v1alpha1</code> <code>PodPreset</code> 是实验性机制，不应再用它向匹配标签的 Pod 注入环境变量、卷和挂载。确定性的公共配置可以写进 Deployment 的 Pod 模板，或用 Helm/Kustomize 管理；必须在创建 Pod 时按条件动态修改对象，使用 <a href="https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/">Mutating Admission Webhook</a>。</li>
+    <li><strong>第 <a href="/#23">23</a> 讲的 Initializer：已移除。</strong> <code>InitializerConfiguration</code> 和 <code>metadata.initializers.pending</code> 属于旧的异步初始化机制，不是现代 Kubernetes 可部署的配置。现在为 Pod 注入 sidecar 的典型路径是：API Server 在创建 Pod 的准入阶段调用已注册的 Mutating Webhook → 注入服务返回补丁 → API Server 修改对象后创建 Pod；不需要控制器事后清除 <code>pending</code>。文中 <code>initializer.kubernetes.io/envoy: "true"</code> 也不是 Kubernetes 自动识别控制器的通用开关，只有注入控制器约定读取它才有作用；名为 <code>envoy-initializer</code> 的 ConfigMap 只是供注入器读取的配置，创建它本身不会注册注入器；示例的 <code>metadata</code> 还漏了冒号。<strong>这不代表 2018 年没有 Webhook</strong>：Kubernetes 1.9 时准入 Webhook 已是 Beta。参阅 <a href="https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates-removed/">已移除的特性门控</a>、<a href="https://kubernetes.io/blog/2018/01/extensible-admission-is-beta/">2018 年准入机制公告</a>。</li>
+    <li><strong>第 <a href="/#23">23</a> 讲的 Istio 架构图：历史版本，不是今天的部署拓扑。</strong> Pilot、Galley、Citadel 等独立组件及独立 sidecar injector 的描述，后来被集中到 <code>istiod</code>；Istio 的 sidecar 自动注入仍使用 Mutating Webhook。要为命名空间内<strong>新创建</strong>的 Pod 注入，可按所装 Istio 版本配置 <code>istio-injection=enabled</code> 或修订标签 <code>istio.io/rev</code>；针对单个 Pod 常用 <code>sidecar.istio.io/inject: "true"</code> / <code>"false"</code> <strong>标签</strong>，Deployment 中要写在 <code>spec.template.metadata.labels</code>。已有 Pod 不会因修改标签而原地增加 sidecar。并且今天 Istio 还有无需逐 Pod sidecar 的 ambient 模式（ztunnel，按需使用 waypoint），因此“服务网格必然等于每个 Pod 都有 Envoy”也只适用于该文讨论的 sidecar 模式。参阅 <a href="https://istio.io/latest/blog/2020/istiod/">istiod 变迁</a>、<a href="https://istio.io/latest/docs/setup/additional-setup/sidecar-injection/">当前注入方式</a>、<a href="https://istio.io/latest/blog/2024/ambient-reaches-ga/">ambient 模式</a>。</li>
+    <li><strong>第 <a href="/#23">23</a>、<a href="/#24">24</a>、<a href="/#25">25</a> 讲的 PATCH/声明式 API：原理仍有价值，工具链已有新选择。</strong> 不应把文中的 <code>TwoWayMergePatch</code> 伪代码看成编写现代控制器的唯一实现，也不要以为 <code>kubectl apply</code> 一律已自动改用服务器端。<a href="https://kubernetes.io/docs/reference/using-api/server-side-apply/">Server-Side Apply</a> 在 Kubernetes 1.22 GA，服务端通过 <code>managedFields</code> 跟踪字段所有权并报告冲突；需要显式选择时使用 <code>kubectl apply --server-side</code>，控制器也可使用 Apply API。客户端 apply、JSON Patch、Strategic Merge Patch 仍是不同场景下的工具，不能机械互换。</li>
+  </ul>
+
+  <h2>三、原文 YAML 里的旧 API 版本</h2>
+  <p>以下是<strong>原文章节中的实际示例</strong>，不是说相关资源本身被废除了。原对象通常还能通过新的 API 访问，但旧清单、旧客户端请求可能直接报“找不到版本”。变更不止替换 <code>apiVersion</code>：特别注意必填字段、字段路径和默认行为。完整清单以 Kubernetes 的<a href="https://kubernetes.io/docs/reference/using-api/deprecation-guide/">已弃用 API 迁移指南</a>为准。</p>
+  <table>
+    <thead><tr><th>原文章节 / 写法</th><th>现在的写法与迁移要点</th></tr></thead>
+    <tbody>
+      <tr><td>第 <a href="/#31">31</a> 讲：<code>apps/v1beta2</code> 的 DaemonSet；第 <a href="/#39">39</a> 讲：<code>extensions/v1beta1</code> 的 Deployment</td><td>改用 <code>apps/v1</code>；这两个旧 API 版本自 1.16 不再提供。<code>spec.selector</code> 必填，且须与 Pod 模板标签相符；创建后不可随意修改。</td></tr>
+      <tr><td>第 <a href="/#22">22</a> 讲：<code>batch/v1beta1</code> 的 CronJob</td><td>使用 <code>batch/v1</code>；旧版本自 1.25 不再提供。Job/CronJob 的调度思想仍成立。</td></tr>
+      <tr><td>第 <a href="/#24">24</a> 讲：<code>apiextensions.k8s.io/v1beta1</code> 的 CRD</td><td>使用 <code>apiextensions.k8s.io/v1</code>；旧版本自 1.22 不再提供。须使用 <code>spec.versions</code>、显式 <code>spec.scope</code>，并为版本提供结构化 <code>openAPIV3Schema</code>，不能只改版本字符串。</td></tr>
+      <tr><td>第 <a href="/#36">36</a> 讲：<code>extensions/v1beta1</code> 的 NetworkPolicy</td><td>使用 <code>networking.k8s.io/v1</code>；旧版本自 1.16 不再提供。NetworkPolicy 能否生效仍取决于网络插件是否实现它。</td></tr>
+      <tr><td>第 <a href="/#39">39</a> 讲：<code>extensions/v1beta1</code> 的 Ingress，旧 <code>serviceName</code> / <code>servicePort</code> 字段</td><td>使用 <code>networking.k8s.io/v1</code>；旧版本自 1.22 不再提供。后端写成 <code>backend.service.name</code> 与 <code>backend.service.port.number</code>，每条路径需 <code>pathType</code>；通常用 <code>spec.ingressClassName</code> 指定已安装的控制器。</td></tr>
+      <tr><td>第 <a href="/#49">49</a> 讲：<code>autoscaling/v2beta1</code> 的 HPA</td><td>使用 <code>autoscaling/v2</code>；旧版本自 1.25 不再提供，<code>v2beta2</code> 自 1.26 不再提供。自定义指标的 <code>metrics[*].object</code> 等字段结构也有调整，需参考<a href="https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/">当前示例</a>；指标 API 仍须由对应的适配器提供。</td></tr>
+    </tbody>
+  </table>
+  <p>例如，第 39 讲的茶与咖啡路由在新版 Ingress 中，核心字段应写成这样（<code>ingressClassName</code> 需换成集群中实际存在的 IngressClass）：</p>
+  <pre><code>apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cafe
+spec:
+  ingressClassName: example-controller
+  rules:
+    - host: cafe.example.com
+      http:
+        paths:
+          - path: /tea
+            pathType: Prefix
+            backend:
+              service:
+                name: tea-svc
+                port:
+                  number: 80
+          - path: /coffee
+            pathType: Prefix
+            backend:
+              service:
+                name: coffee-svc
+                port:
+                  number: 80</code></pre>
+
+  <h2>四、功能没消失，但底层或首选方案变了</h2>
+  <ul>
+    <li><strong>第 <a href="/#30">30</a>、<a href="/#31">31</a> 讲：存储扩展。</strong> PV、PVC、StorageClass 的抽象依然适用；但手工把 FlexVolume 脚本放进每台宿主机插件目录已是旧方案。FlexVolume 自 1.23 弃用，新驱动优先使用 CSI；原文 CSI 章节的早期 sidecar 镜像、API 清单及镜像版本也要随驱动发布版本一起核对，不能原样部署。参阅 <a href="https://kubernetes.io/docs/concepts/storage/volumes/">卷与 FlexVolume 状态</a>。</li>
+    <li><strong>第 <a href="/#37">37</a>、<a href="/#38">38</a> 讲：Service 后端列表。</strong> Service 依靠选择器找到 Pod、readiness 影响可用后端的核心概念仍正确；但脚本或控制器不宜再依赖 <code>kubectl get endpoints</code> 得到唯一、完整的后端列表。<code>Endpoints</code> API 自 1.33 被弃用；使用 <code>discovery.k8s.io/v1</code> 的 EndpointSlice，并通过标签 <code>kubernetes.io/service-name</code> 找到一个 Service 对应的<strong>多片</strong>后端。参阅 <a href="https://kubernetes.io/blog/2025/04/24/endpoints-deprecation/">Endpoints 迁移说明</a>。</li>
+    <li><strong>第 <a href="/#37">37</a>—<a href="/#39">39</a> 讲：网络数据路径与入口。</strong> 原文 iptables 规则和“IPVS 更适合大规模 Service”的演示是当年特定实现，不是所有集群唯一的数据路径。kube-proxy 的 IPVS 模式自 1.35 弃用；Linux 下还有 iptables、nftables 等模式，具体须看集群配置和网络插件实现。<strong>Ingress API 本身没有被移除</strong>，但已冻结新功能，复杂路由可考虑有对应实现的 Gateway API。原文建议安装的社区 ingress-nginx 控制器在 2026 年 3 月后结束维护；它和 Ingress API 不是一回事，应评估受维护的控制器及迁移路径，而不是继续套用其 <code>master</code> 安装清单。参阅 <a href="https://kubernetes.io/blog/2025/12/17/kubernetes-v1-35-release/">IPVS 与 ingress-nginx 公告</a>、<a href="https://kubernetes.io/docs/concepts/services-networking/ingress/">Ingress 状态</a>、<a href="https://kubernetes.io/docs/concepts/services-networking/gateway/">Gateway API</a>。</li>
+    <li><strong>第 <a href="/#41">41</a>—<a href="/#43">43</a> 讲：调度器扩展。</strong> “过滤候选节点、为可行节点打分、必要时抢占”的思路仍正确；原文 Predicate/Priority 的具体函数与扩展方式属于历史实现。配置和编写新扩展应查看当前 <a href="https://kubernetes.io/docs/concepts/scheduling-eviction/scheduling-framework/">Scheduling Framework</a> 的 <code>Filter</code>、<code>Score</code>、<code>PostFilter</code> 等插件扩展点，而不是直接套用旧调度策略或源码路径。</li>
+    <li><strong>第 <a href="/#26">26</a> 讲：ServiceAccount Token。</strong> 原文称创建 ServiceAccount 后会自动生成长期有效的 Token Secret；现代集群不应据此读取 <code>serviceAccount.secrets[0]</code>。Pod 中的凭据主要通过 kubelet 使用 TokenRequest 取得、以 projected volume 挂载的短期可轮换令牌提供；集群外临时取令牌可用 <code>kubectl create token</code>。长效 Secret 可以手动创建，但并非默认做法。参阅 <a href="https://kubernetes.io/docs/reference/access-authn-authz/service-accounts-admin/">管理 ServiceAccount</a>。</li>
+    <li><strong>第 <a href="/#49">49</a> 讲：自定义指标示例的授权。</strong> 为了用 <code>curl</code> 快速读指标，原文把读取权限绑定给 <code>system:anonymous</code>。这是当年的实验步骤，<strong>不要在真实集群执行</strong>：它会让匿名请求得到本不应有的权限。应通过正确身份认证，给特定 ServiceAccount/用户最小权限的 Role/ClusterRoleBinding；使用 HPA 时检查 Metrics Server 或 custom-metrics adapter 的实际 API/RBAC。权限原则参阅 <a href="https://kubernetes.io/docs/reference/access-authn-authz/rbac/">RBAC 文档</a>。</li>
+  </ul>
+
+  <h2>五、如何安全地使用这套旧教程</h2>
+  <ol>
+    <li>学概念时保留原文的时间背景；特别是第 <a href="/#01">01</a>—<a href="/#04">04</a> 讲的 Docker、rkt 和编排竞争史，它们是明确标年的历史，不是当前产品推荐清单。</li>
+    <li>复制任何 YAML 之前先看集群版本：<code>kubectl version</code>、<code>kubectl api-resources</code>、<code>kubectl api-versions</code>；按目标版本的官方文档修改 API 和字段，再在测试环境使用 <code>kubectl apply --dry-run=server -f &lt;文件&gt;</code> 校验。服务端 dry-run 只检查请求与准入行为，不代替控制器、CNI、CSI 的真实运行验证。</li>
+    <li>不要把网上的旧 <code>master</code> 安装清单、跨版本镜像、匿名授权命令直接用于生产。迁移时区分<strong>对象版本已移除</strong>、<strong>实现仍在但已弃用</strong>和<strong>只是不再推荐</strong>；最终以实际发行版的兼容矩阵和升级文档为准。</li>
+  </ol>
+  <p>本篇只为原课程补上“今天如何理解与实践”的索引，不替代各版本 Kubernetes、Istio、网络和存储实现的正式文档，也不修改原作者的历史原文。</p>
+</div>
+</body>
+</html>
