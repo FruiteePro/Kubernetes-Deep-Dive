@@ -1,0 +1,22 @@
+"HTML/54  补充篇：从2018年原文到今天的Kubernetes.html"
+  s_00492ebdca2543::t_4fcd68cb6f1543 1-15,17-20,23-31,33,35-85
+  s_00492ebdca2543::t_ee8204b30677fc 16,21-22,32,34
+README.md
+  s_00492ebdca2543::t_d7856823a34549 3,14,18,49,55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.45-trip",
+  "base_commit_sha": "ee0a90bd8199c83f77276b0ff0ecf526c671da80",
+  "prompts": {},
+  "sessions": {
+    "s_00492ebdca2543": {
+      "agent_id": {
+        "tool": "chengxiaobang",
+        "id": "s_b5imutn04hpo",
+        "model": "gpt-6-sol-2026-09-22"
+      },
+      "human_author": "junpengke <kejp@trip.com>"
+    }
+  }
+}
