@@ -1,0 +1,20 @@
+serve.py
+  s_38a923f165a489::t_d7968c05099d76 502,509,517-521
+  s_38a923f165a489::t_a607ab49858da8 310,324-325,327-333,420-421,424,441-442,446,476-501,503-508,510-516,522-533,622-625,710-714,725
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.45-trip",
+  "base_commit_sha": "e0ceacb2825fee8813d470d835eecaf34c3239c8",
+  "prompts": {},
+  "sessions": {
+    "s_38a923f165a489": {
+      "agent_id": {
+        "tool": "chengxiaobang",
+        "id": "s_x7ypgapel4nh",
+        "model": "gpt-6-sol-2026-09-22"
+      },
+      "human_author": "junpengke <kejp@trip.com>"
+    }
+  }
+}
