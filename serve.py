@@ -307,7 +307,7 @@ PAGE = r"""<!doctype html>
 :root{
   --bg:#f6f7f9; --panel:#fff; --text:#22262b; --muted:#7b848f; --line:#e6e8ec;
   --accent:#2f6fed; --accent-soft:#eaf0fe; --code-bg:#f4f6f8; --shadow:0 1px 3px rgba(16,24,40,.06);
-  --w:760px;
+  --w:760px; --side-width:330px;
 }
 html[data-theme="dark"]{
   --bg:#14161a; --panel:#1b1e24; --text:#dcdfe4; --muted:#8b939e; --line:#2a2f36;
@@ -321,8 +321,16 @@ body{margin:0;background:var(--bg);color:var(--text);
 #app{display:flex;height:100%;overflow:hidden}
 
 /* ---------------- 侧栏 ---------------- */
-#side{width:330px;flex:0 0 330px;background:var(--panel);border-right:1px solid var(--line);
+#side{width:var(--side-width);flex:0 0 var(--side-width);min-width:240px;
+  max-width:min(600px,calc(100vw - 360px));background:var(--panel);border-right:1px solid var(--line);
   display:flex;flex-direction:column;height:100%}
+#splitter{flex:0 0 7px;position:relative;background:var(--panel);cursor:col-resize;touch-action:none}
+#splitter::after{content:"";position:absolute;top:0;bottom:0;left:3px;width:1px;background:var(--line)}
+#splitter:hover::after,#splitter:focus-visible::after,body.resizing #splitter::after{background:var(--accent)}
+body.resizing{cursor:col-resize;user-select:none}
+@media (min-width:901px){
+  body.side-closed #side,body.side-closed #splitter{display:none}
+}
 #side header{padding:18px 18px 12px;border-bottom:1px solid var(--line)}
 #side h1{margin:0 0 6px;font-size:17px;letter-spacing:.2px}
 #side .sub{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
@@ -357,7 +365,6 @@ button:hover{border-color:var(--accent);color:var(--accent)}
 button:disabled{opacity:.4;cursor:not-allowed}
 button.solid{background:var(--accent);border-color:var(--accent);color:#fff}
 button.solid:hover{color:#fff;opacity:.9}
-#menu{display:none}
 #scroller{overflow-y:auto;flex:1;scroll-behavior:smooth}
 
 /* ---------------- 正文排版 ---------------- */
@@ -410,10 +417,11 @@ article .head .meta .hint.done{color:#25a34c;font-weight:600}
 #toTop.show{display:block}
 
 @media (max-width:900px){
-  #side{position:fixed;z-index:20;left:0;top:0;transform:translateX(-100%);
+  #side{position:fixed;z-index:20;left:0;top:0;width:min(330px,calc(100vw - 48px));
+    min-width:0;max-width:none;flex:none;transform:translateX(-100%);
     transition:transform .2s ease;box-shadow:0 0 40px rgba(0,0,0,.2)}
   body.nav #side{transform:none}
-  #menu{display:inline-block}
+  #splitter{display:none}
   article{padding:22px 18px 100px}
   article .head h2{font-size:22px}
 }
@@ -430,10 +438,12 @@ article .head .meta .hint.done{color:#25a34c;font-weight:600}
     <ul id="list"></ul>
     <footer>← → 翻页 · r 已读 · t 主题 · / 搜索</footer>
   </aside>
+  <div id="splitter" role="separator" aria-label="调整目录宽度" aria-orientation="vertical"
+    aria-valuemin="240" aria-valuemax="600" aria-valuenow="330" tabindex="0" title="拖动调整目录宽度"></div>
 
   <div id="main">
     <div id="topbar">
-      <button id="menu">☰</button>
+      <button id="menu" aria-controls="side" aria-label="收起目录" aria-expanded="true">☰</button>
       <div id="crumbs"></div>
       <button id="mark">标记已读</button>
       <button id="prev">← 上一篇</button>
@@ -462,6 +472,64 @@ const store = {
 let read = new Set(store.get('k8s.read', []));
 let theme = store.get('k8s.theme', 'light');
 docEl.dataset.theme = theme;
+
+const splitter = $('#splitter');
+const savedWidth = store.get('k8s.sideWidth', 330);
+let sideWidth = Number.isFinite(savedWidth) ? Math.max(240, Math.min(600, savedWidth)) : 330;
+docEl.style.setProperty('--side-width', sideWidth + 'px');
+document.body.classList.toggle('side-closed', store.get('k8s.sideClosed', false) === true);
+
+function updateMenu() {
+  const narrow = window.innerWidth <= 900;
+  const opened = narrow ? document.body.classList.contains('nav') : !document.body.classList.contains('side-closed');
+  const label = opened ? '收起目录' : '展开目录';
+  $('#menu').title = label;
+  $('#menu').setAttribute('aria-label', label);
+  $('#menu').setAttribute('aria-expanded', String(opened));
+  const max = Math.min(600, Math.max(240, window.innerWidth - 360));
+  splitter.setAttribute('aria-valuemax', String(max));
+  splitter.setAttribute('aria-valuenow', String(Math.min(sideWidth, max)));
+}
+
+function setSideWidth(width) {
+  sideWidth = Math.max(240, Math.min(600, window.innerWidth - 360, Math.round(width)));
+  docEl.style.setProperty('--side-width', sideWidth + 'px');
+  splitter.setAttribute('aria-valuenow', String(sideWidth));
+}
+
+let dragging = false;
+splitter.addEventListener('pointerdown', (e) => {
+  if (dragging || e.button !== 0 || window.innerWidth <= 900) return;
+  dragging = true;
+  splitter.setPointerCapture(e.pointerId);
+  document.body.classList.add('resizing');
+  e.preventDefault();
+});
+splitter.addEventListener('pointermove', (e) => {
+  if (dragging && splitter.hasPointerCapture(e.pointerId)) setSideWidth(e.clientX);
+});
+splitter.addEventListener('lostpointercapture', () => {
+  if (!dragging) return;
+  dragging = false;
+  document.body.classList.remove('resizing');
+  store.set('k8s.sideWidth', sideWidth);
+});
+function stopResize(e) {
+  if (splitter.hasPointerCapture(e.pointerId)) splitter.releasePointerCapture(e.pointerId);
+}
+splitter.addEventListener('pointerup', stopResize);
+splitter.addEventListener('pointercancel', stopResize);
+splitter.addEventListener('keydown', (e) => {
+  const width = $('#side').getBoundingClientRect().width;
+  if (e.key === 'ArrowLeft') setSideWidth(width - 10);
+  else if (e.key === 'ArrowRight') setSideWidth(width + 10);
+  else if (e.key === 'Home') setSideWidth(240);
+  else if (e.key === 'End') setSideWidth(600);
+  else return;
+  e.preventDefault();
+  store.set('k8s.sideWidth', sideWidth);
+});
+updateMenu();
 
 /* ---------- 侧栏目录 ---------- */
 const byId = {};
@@ -551,7 +619,10 @@ async function open(id, push = true) {
     doc.className = 'empty';
     doc.textContent = '加载失败：' + err.message;
   }
-  if (window.innerWidth <= 900) document.body.classList.remove('nav');
+  if (window.innerWidth <= 900) {
+    document.body.classList.remove('nav');
+    updateMenu();
+  }
 }
 
 /* 给每个代码块挂一个自己的“复制”按钮（原页面的按钮是混在 <pre> 里的脏数据） */
@@ -636,7 +707,11 @@ window.addEventListener('hashchange', () => {
 $('#prev').onclick = () => { const [p] = neighbors(); if (p) open(p.id); };
 $('#next').onclick = () => { const [, n] = neighbors(); if (n) open(n.id); };
 $('#mark').onclick = () => current && markRead(current);
-$('#menu').onclick = () => document.body.classList.toggle('nav');
+$('#menu').onclick = () => {
+  if (window.innerWidth <= 900) document.body.classList.toggle('nav');
+  else store.set('k8s.sideClosed', document.body.classList.toggle('side-closed'));
+  updateMenu();
+};
 $('#theme').onclick = () => {
   theme = theme === 'dark' ? 'light' : 'dark';
   docEl.dataset.theme = theme;
@@ -647,7 +722,7 @@ scroller.addEventListener('scroll', () => {
   $('#toTop').classList.toggle('show', scroller.scrollTop > 400);
   checkBottom();
 });
-window.addEventListener('resize', checkBottom);
+window.addEventListener('resize', () => { updateMenu(); checkBottom(); });
 
 $('#q').addEventListener('input', (e) => renderList(e.target.value));
 $('#q').addEventListener('keydown', (e) => {
